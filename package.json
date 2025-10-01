@@ -1,0 +1,68 @@
+{
+  "name": "hybrid-insurance-dapp",
+  "version": "1.0.0",
+  "description": "Hybrid Insurance DApp with Django backend and React frontend",
+  "main": "hardhat.config.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.js",
+    "deploy:localhost": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "node": "hardhat node",
+    "clean": "hardhat clean",
+    "frontend": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
+    "backend": "cd backend && python manage.py runserver",
+    "backend:migrate": "cd backend && python manage.py migrate",
+    "backend:makemigrations": "cd backend && python manage.py makemigrations",
+    "backend:createsuperuser": "cd backend && python manage.py createsuperuser",
+    "backend:seed": "cd backend && python manage.py seed_data",
+    "install-all": "npm install && cd frontend && npm install && cd ../backend && pip install -r requirements.txt",
+    "dev": "concurrently \"npm run node\" \"npm run backend\" \"npm run frontend\"",
+    "start": "npm run dev"
+  },
+  "keywords": [
+    "blockchain",
+    "insurance",
+    "dapp",
+    "ethereum",
+    "django",
+    "react",
+    "web3",
+    "hardhat",
+    "solidity"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@typechain/ethers-v6": "^0.5.0",
+    "@typechain/hardhat": "^9.0.0",
+    "chai": "^4.2.0",
+    "concurrently": "^8.2.0",
+    "ethers": "^6.4.0",
+    "hardhat": "^2.26.3",
+    "hardhat-gas-reporter": "^1.0.8",
+    "solidity-coverage": "^0.8.1",
+    "typechain": "^8.3.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/hybrid-insurance-dapp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/hybrid-insurance-dapp/issues"
+  },
+  "homepage": "https://github.com/yourusername/hybrid-insurance-dapp#readme"
+}

@@ -1,0 +1,57 @@
+
+# Core Django Framework
+Django>=4.2.0,<5.0.0
+djangorestframework>=3.14.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Web3 Integration
+web3>=6.0.0
+
+# Environment Variables
+python-decouple>=3.8
+python-dotenv>=1.0.0
+
+# HTTP Requests (for external API calls)
+requests>=2.31.0
+
+# JSON Handling (for performance)
+ujson>=5.8.0
+
+# CORS Headers (for frontend-backend communication)
+django-cors-headers>=4.3.0
+
+# Security & Authentication
+djangorestframework-simplejwt>=5.3.0
+
+# Development & Debugging (optional but recommended)
+django-debug-toolbar>=4.2.0
+
+# Production WSGI Server
+gunicorn>=21.2.0
+
+# Static Files Handling
+whitenoise>=6.5.0
+
+# Cryptography (for encryption features)
+cryptography>=41.0.0
+
+# Date/Time Utilities
+python-dateutil>=2.8.0
+
+# Validation
+validators>=0.22.0
+
+# Logging
+structlog>=23.1.0
+
+# Testing (optional)
+pytest>=7.4.0
+pytest-django>=4.5.0
+factory-boy>=3.3.0
+
+# Code Quality (optional)
+flake8>=6.0.0
+black>=23.7.0
+isort>=5.12.0
