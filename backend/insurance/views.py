@@ -2,8 +2,13 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Buyer, Policy, Claim, HospitalTxnRecord, ClaimDoc
-from .serializers import BuyerSerializer, PolicySerializer, ClaimSerializer, HospitalTxnRecordSerializer, ClaimDocSerializer
+from .models import Buyer, Policy, Claim, HospitalTxnRecord, ClaimDoc, Admin
+from .serializers import (
+    BuyerSerializer, PolicySerializer, ClaimSerializer,
+    HospitalTxnRecordSerializer, ClaimDocSerializer,
+    AdminSerializer, AdminLoginSerializer, AdminWalletVerificationSerializer
+)
+from django.conf import settings
 from web3 import Web3
 from django.conf import settings
 import uuid
@@ -188,3 +193,155 @@ def upload_claim_doc(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     except Claim.DoesNotExist:
         return Response({'error': 'Claim not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# Admin Authentication Views
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_register(request):
+    """Register a new admin user"""
+    serializer = AdminSerializer(data=request.data)
+    if serializer.is_valid():
+        admin = serializer.save()
+        return Response({
+            'message': 'Admin registered successfully',
+            'admin': {
+                'id': admin.id,
+                'email': admin.email,
+                'full_name': admin.full_name
+            }
+        }, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_login(request):
+    """Admin login with email and password"""
+    serializer = AdminLoginSerializer(data=request.data)
+    if serializer.is_valid():
+        admin = serializer.validated_data['admin']
+        return Response({
+            'message': 'Login successful',
+            'admin': {
+                'id': admin.id,
+                'email': admin.email,
+                'full_name': admin.full_name,
+                'last_login': admin.last_login
+            }
+        }, status=status.HTTP_200_OK)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_verify_wallet(request):
+    """Verify admin wallet address matches the configured admin wallet"""
+    serializer = AdminWalletVerificationSerializer(data=request.data)
+    if serializer.is_valid():
+        wallet_address = serializer.validated_data['wallet_address']
+        admin_id = serializer.validated_data['admin_id']
+        
+        # Get the admin wallet address from environment
+        admin_wallet = settings.ADMIN_WALLET_ADDRESS.lower() if hasattr(settings, 'ADMIN_WALLET_ADDRESS') else None
+        
+        if not admin_wallet:
+            return Response({
+                'error': 'Admin wallet address not configured'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Verify the admin exists and is active
+        try:
+            admin = Admin.objects.get(id=admin_id, is_active=True)
+        except Admin.DoesNotExist:
+            return Response({
+                'error': 'Admin not found or inactive'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if wallet address matches
+        if wallet_address == admin_wallet:
+            return Response({
+                'message': 'Wallet verified successfully',
+                'admin': {
+                    'id': admin.id,
+                    'email': admin.email,
+                    'full_name': admin.full_name,
+                    'wallet_verified': True
+                }
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Wallet address does not match admin wallet'
+            }, status=status.HTTP_403_FORBIDDEN)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# Admin Management Views
+@api_view(['GET'])
+@permission_classes([AllowAny])  # We'll handle admin verification in the view
+def admin_get_claims(request):
+    """Get all claims for admin review"""
+    claims = Claim.objects.all().order_by('-created_at')
+    serializer = ClaimSerializer(claims, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def admin_get_buyers(request):
+    """Get all buyers for admin review"""
+    buyers = Buyer.objects.all().order_by('-id')
+    serializer = BuyerSerializer(buyers, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_update_claim_status(request):
+    """Update claim status (approve/reject)"""
+    claim_id = request.data.get('claim_id')
+    new_status = request.data.get('status')  # 'verified' or 'rejected'
+    admin_id = request.data.get('admin_id')
+    
+    if not all([claim_id, new_status, admin_id]):
+        return Response({
+            'error': 'claim_id, status, and admin_id are required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Verify admin exists
+    try:
+        admin = Admin.objects.get(id=admin_id, is_active=True)
+    except Admin.DoesNotExist:
+        return Response({
+            'error': 'Admin not found or inactive'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    # Update claim status
+    try:
+        claim = Claim.objects.get(claim_id=claim_id)
+        claim.claim_status = new_status
+        claim.save()
+        
+        # Call smart contract to verify (if contract is available)
+        if contract is not None and new_status in ['verified', 'rejected']:
+            try:
+                status_bool = new_status == 'verified'
+                txn = contract.functions.verifyClaim(
+                    claim_id,
+                    status_bool
+                ).transact({'from': settings.ADMIN_WALLET_ADDRESS})
+                w3.eth.wait_for_transaction_receipt(txn)
+            except Exception as e:
+                print(f"Warning: Could not update claim on blockchain: {e}")
+        
+        serializer = ClaimSerializer(claim)
+        return Response({
+            'message': f'Claim {new_status} successfully',
+            'claim': serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except Claim.DoesNotExist:
+        return Response({
+            'error': 'Claim not found'
+        }, status=status.HTTP_404_NOT_FOUND)

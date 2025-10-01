@@ -29,10 +29,12 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "corsheaders",
     "insurance",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -136,3 +138,28 @@ REST_FRAMEWORK = {
 
 HARDHAT_RPC_URL = os.getenv('HARDHAT_RPC_URL', 'http://127.0.0.1:8545')
 CONTRACT_ADDRESS = os.getenv('CONTRACT_ADDRESS', '')
+ADMIN_WALLET_ADDRESS = os.getenv('ADMIN_WALLET_ADDRESS', '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266')
+
+# CORS settings
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_ALL_ORIGINS = True  # For development only
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]

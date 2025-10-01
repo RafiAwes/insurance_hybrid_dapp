@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.contrib.auth.hashers import make_password, check_password
 
 class Buyer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -66,3 +67,28 @@ class ClaimDoc(models.Model):
 
     def __str__(self):
         return f"Doc for {self.claim.claim_id}"
+
+
+class Admin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=128)  # Will store hashed password
+    full_name = models.CharField(max_length=200)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_login = models.DateTimeField(null=True, blank=True)
+
+    def set_password(self, raw_password):
+        """Hash and set the password"""
+        self.password = make_password(raw_password)
+
+    def check_password(self, raw_password):
+        """Check if the provided password matches the stored hash"""
+        return check_password(raw_password, self.password)
+
+    def __str__(self):
+        return self.email
+
+    class Meta:
+        verbose_name = "Admin User"
+        verbose_name_plural = "Admin Users"
