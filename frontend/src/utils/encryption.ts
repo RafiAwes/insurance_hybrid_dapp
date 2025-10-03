@@ -6,6 +6,7 @@
 import { create } from "@storacha/client";
 
 const ENCRYPTION_KEY = 'your-32-byte-secret-key-here-for-demo'; // In production, use proper key management (e.g., derive from user wallet). Ensure 32 bytes for AES-256.
+const STORACHA_ADMIN_EMAIL = 'rafiaweshan4897@gmail.com'; // Centralized Storacha account
 
 function uint8ArrayToBase64(uint8Array: Uint8Array): string {
   let binary = '';
@@ -62,13 +63,10 @@ export async function decryptData(encrypted: ArrayBuffer, iv: Uint8Array, key: s
   }
 }
 
-// Real Storacha upload with encryption (requires email for login; user confirms via email link)
-export async function uploadEncryptedToStoracha(file: File, metadata: { claimId?: string, hospitalTxnId?: string }, email: string): Promise<{ cid: string, encryptedBlob: string }> {
+// Real Storacha upload with encryption using centralized admin account
+export async function uploadEncryptedToStoracha(file: File, metadata: { claimId?: string, hospitalTxnId?: string, buyerAddress?: string }): Promise<{ cid: string, encryptedBlob: string }> {
   if (!file || file.size === 0) {
     throw new Error('Invalid file provided');
-  }
-  if (!email) {
-    throw new Error('Email required for Storacha login');
   }
 
   // Encrypt file
@@ -78,25 +76,26 @@ export async function uploadEncryptedToStoracha(file: File, metadata: { claimId?
   // Create Blob from encrypted data
   const encryptedBlob = new Blob([new Uint8Array(encrypted)], { type: 'application/octet-stream' });
 
-  // Storacha integration
+  // Storacha integration using centralized admin account
   try {
     const client = await create();
-    const account = await client.login(email as `${string}@${string}`);
-    console.log('Storacha login initiated. Check your email for confirmation link (first time only).');
+    const account = await client.login(STORACHA_ADMIN_EMAIL as `${string}@${string}`);
+    console.log('Storacha login with admin account:', STORACHA_ADMIN_EMAIL);
 
     // Wait for payment plan selection (user must complete via email/dashboard if prompted)
     await account.plan.wait({ interval: 1000, timeout: 15 * 60 * 1000 }); // 15 min timeout
     console.log('Payment plan ready.');
 
-    // Create space (fixed for app; in prod, manage per user or check existence)
-    const space = await client.createSpace('insurance-dapp-space', { account });
+    // Create space for insurance claims (organized by buyer address)
+    const spaceName = `insurance-claims-${metadata.buyerAddress?.slice(-8) || 'default'}`;
+    const space = await client.createSpace(spaceName, { account });
     console.log('Storacha space created:', space.did());
     await client.setCurrentSpace(space.did());
 
-    // Upload file (returns CID for the blob; organize paths via backend metadata)
+    // Upload file with metadata
     const cidObj = await client.uploadFile(encryptedBlob);
     const cid = cidObj.toString();
-    console.log(`Uploaded encrypted file to Storacha for ${metadata.claimId || metadata.hospitalTxnId}, CID: ${cid}`);
+    console.log(`Uploaded encrypted file to Storacha for buyer ${metadata.buyerAddress}, CID: ${cid}`);
 
     // Return CID and IV base64 (for decryption; actual encrypted data accessible via CID on Storacha)
     const ivBase64 = uint8ArrayToBase64(iv);

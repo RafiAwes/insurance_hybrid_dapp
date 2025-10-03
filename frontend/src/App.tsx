@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import WalletConnect from './components/WalletConnect'
 import BuyerDashboard from './components/BuyerDashboard'
+import BuyerLogin from './components/BuyerLogin'
 import AdminLogin from './components/AdminLogin'
 import AdminDashboard from './components/AdminDashboard'
 import { isMetaMaskInstalled } from './services/web3'
@@ -11,6 +12,7 @@ function App() {
   const [isMetaMaskAvailable, setIsMetaMaskAvailable] = useState(false)
   const [currentView, setCurrentView] = useState<'buyer' | 'admin'>('buyer')
   const [adminData, setAdminData] = useState<any>(null)
+  const [buyerData, setBuyerData] = useState<any>(null)
 
   useEffect(() => {
     // Check if MetaMask is installed
@@ -24,14 +26,25 @@ function App() {
 
   const handleAdminLogin = (admin: any) => {
     setAdminData(admin)
+    setBuyerData(null) // Clear buyer data when admin logs in
     console.log('Admin logged in:', admin)
+  }
+
+  const handleBuyerLogin = (buyer: any) => {
+    setBuyerData(buyer)
+    setAdminData(null) // Clear admin data when buyer logs in
+    console.log('Buyer logged in:', buyer)
   }
 
   const handleLogout = () => {
     setAdminData(null)
+    setBuyerData(null)
     setConnectedAccount(null)
     setCurrentView('buyer')
   }
+
+  // Determine if user is logged in
+  const isLoggedIn = (adminData && adminData.wallet_verified) || (buyerData && buyerData.wallet_verified)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -44,41 +57,59 @@ function App() {
                 🏥 Health Insurance DApp
               </h1>
               
-              {/* View Toggle */}
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                <button
-                  onClick={() => setCurrentView('buyer')}
-                  className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                    currentView === 'buyer'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  👤 Buyer
-                </button>
-                <button
-                  onClick={() => setCurrentView('admin')}
-                  className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                    currentView === 'admin'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  🛡️ Admin
-                </button>
-              </div>
+              {/* View Toggle - Only show if not logged in */}
+              {!isLoggedIn && (
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setCurrentView('buyer')}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                      currentView === 'buyer'
+                        ? 'bg-white text-green-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    👤 Buyer
+                  </button>
+                  <button
+                    onClick={() => setCurrentView('admin')}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                      currentView === 'admin'
+                        ? 'bg-white text-blue-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    🛡️ Admin
+                  </button>
+                </div>
+              )}
+
+              {/* Show current user type when logged in */}
+              {isLoggedIn && (
+                <div className="bg-gray-100 rounded-lg px-3 py-1">
+                  <span className="text-sm font-medium text-gray-700">
+                    {adminData ? '🛡️ Admin Portal' : '👤 Buyer Portal'}
+                  </span>
+                </div>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
+              {/* Welcome message */}
               {adminData && (
                 <div className="text-sm text-gray-600">
                   Welcome, {adminData.full_name}
                 </div>
               )}
-              {currentView === 'buyer' && (
-                <WalletConnect onAccountChange={handleAccountChange} />
+              {buyerData && (
+                <div className="text-sm text-gray-600">
+                  Welcome, {buyerData.full_name}
+                </div>
               )}
-              {(adminData || connectedAccount) && (
+              
+              {/* No automatic wallet connect - MetaMask connects during verification only */}
+              
+              {/* Logout button */}
+              {(adminData || buyerData || connectedAccount) && (
                 <button
                   onClick={handleLogout}
                   className="text-sm text-gray-500 hover:text-gray-700"
@@ -102,54 +133,19 @@ function App() {
           )
         ) : (
           // Buyer Section
-          !isMetaMaskAvailable ? (
-            // MetaMask not installed
-            <div className="text-center py-12">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 max-w-md mx-auto">
-                <div className="text-6xl mb-4">🦊</div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                  MetaMask Required
-                </h2>
-                <p className="text-gray-600 mb-4">
-                  This application requires MetaMask to interact with the blockchain.
-                </p>
-                <a
-                  href="https://metamask.io/download/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
-                >
-                  Install MetaMask
-                </a>
-              </div>
-            </div>
-          ) : !connectedAccount ? (
-            // MetaMask installed but not connected
-            <div className="text-center py-12">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 max-w-md mx-auto">
-                <div className="text-6xl mb-4">🔗</div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                  Connect Your Wallet
-                </h2>
-                <p className="text-gray-600 mb-4">
-                  Connect your MetaMask wallet to access the health insurance platform.
-                </p>
-                <div className="text-sm text-gray-500">
-                  Click "Connect MetaMask" in the top right corner to get started.
-                </div>
-              </div>
-            </div>
-          ) : (
-            // Wallet connected - show buyer app
+          buyerData && buyerData.wallet_verified ? (
+            // Buyer logged in - show buyer dashboard
             <div className="space-y-8">
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-2">
-                  Welcome to Health Insurance DApp
+                  Welcome back, {buyerData.full_name}!
                 </h2>
                 <p className="text-gray-600">
-                  Your decentralized health insurance platform. Manage your policies,
-                  submit claims, and track your insurance history all on the blockchain.
+                  Manage your insurance policies, submit claims, and track your history.
                 </p>
+                <div className="mt-2 text-sm text-gray-500">
+                  Wallet: {buyerData.wallet_address}
+                </div>
               </div>
 
               {/* Buyer Dashboard */}
@@ -185,6 +181,9 @@ function App() {
                 </div>
               </div>
             </div>
+          ) : (
+            // Buyer not logged in - show login form
+            <BuyerLogin onBuyerLogin={handleBuyerLogin} />
           )
         )}
       </main>

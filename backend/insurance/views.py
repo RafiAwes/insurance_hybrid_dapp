@@ -1,347 +1,400 @@
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
 from rest_framework import status
-from .models import Buyer, Policy, Claim, HospitalTxnRecord, ClaimDoc, Admin
-from .serializers import (
-    BuyerSerializer, PolicySerializer, ClaimSerializer,
-    HospitalTxnRecordSerializer, ClaimDocSerializer,
-    AdminSerializer, AdminLoginSerializer, AdminWalletVerificationSerializer
-)
-from django.conf import settings
-from web3 import Web3
-from django.conf import settings
-import uuid
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from .models import Buyer, Claim, Admin
+from .serializers import BuyerSerializer, ClaimSerializer
 import json
 
-
-w3 = Web3(Web3.HTTPProvider(settings.HARDHAT_RPC_URL))
-
-# Temporary minimal ABI to fix JSON parsing error - replace with full ABI after compilation
-HEALTH_INSURANCE_ABI = [
-    {
-        "inputs": [],
-        "name": "admin",
-        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [{"internalType": "address", "name": "buyer", "type": "address"}],
-        "name": "registerBuyer",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "string", "name": "_claimId", "type": "string"},
-            {"internalType": "uint256", "name": "_amount", "type": "uint256"},
-            {"internalType": "string", "name": "_hospitalTxnId", "type": "string"}
-        ],
-        "name": "submitClaim",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "string", "name": "_claimId", "type": "string"},
-            {"internalType": "bool", "name": "_status", "type": "bool"}
-        ],
-        "name": "verifyClaim",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
+@api_view(['POST'])
+def store_claim_document(request):
+    """
+    Store claim document CID in buyer's record
+    Expected payload: {
+        "buyer_address": "0x...",
+        "claim_id": "claim-123",
+        "cid": "bafybei...",
+        "filename": "medical_report.pdf",
+        "file_size": 1024000
     }
-]
-
-# Initialize contract only if valid address is provided
-contract = None
-if settings.CONTRACT_ADDRESS and settings.CONTRACT_ADDRESS.startswith('0x') and len(settings.CONTRACT_ADDRESS) == 42:
+    """
     try:
-        contract = w3.eth.contract(address=settings.CONTRACT_ADDRESS, abi=HEALTH_INSURANCE_ABI)
+        data = request.data
+        buyer_address = data.get('buyer_address')
+        claim_id = data.get('claim_id')
+        cid = data.get('cid')
+        filename = data.get('filename', 'document')
+        file_size = data.get('file_size', 0)
+        
+        if not all([buyer_address, claim_id, cid]):
+            return Response({
+                'error': 'Missing required fields: buyer_address, claim_id, cid'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get buyer
+        buyer = get_object_or_404(Buyer, wallet_address=buyer_address)
+        
+        # Create claim document entry
+        claim_doc = {
+            'claim_id': claim_id,
+            'cid': cid,
+            'filename': filename,
+            'file_size': file_size,
+            'timestamp': timezone.now().isoformat(),
+            'status': 'submitted'
+        }
+        
+        # Add to buyer's claim_documents list
+        if not buyer.claim_documents:
+            buyer.claim_documents = []
+        
+        buyer.claim_documents.append(claim_doc)
+        buyer.save(update_fields=['claim_documents'])
+        
+        return Response({
+            'success': True,
+            'message': 'Claim document stored successfully',
+            'claim_id': claim_id,
+            'cid': cid
+        }, status=status.HTTP_201_CREATED)
+        
     except Exception as e:
-        print(f"Warning: Could not initialize contract: {e}")
-        contract = None
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Assume admin authentication
-def add_buyer(request):
-    serializer = BuyerSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def submit_claim(request):
-    buyer_address = request.data.get('wallet_address')
-    try:
-        buyer = Buyer.objects.get(wallet_address=buyer_address)
-    except Buyer.DoesNotExist:
-        return Response({'error': 'Buyer not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    claim_id = str(uuid.uuid4())
-    claim_data = {
-        'claim_id': claim_id,
-        'buyer': buyer.id,
-        'claim_amount': request.data.get('amount'),
-        'claim_description': request.data.get('description', ''),
-        'hospital_transaction_id': request.data.get('hospitalTransactionId', ''),
-    }
-    serializer = ClaimSerializer(data=claim_data)
-    if serializer.is_valid():
-        claim = serializer.save()
-
-        # Call smart contract
-        if contract is not None:
-            try:
-                txn = contract.functions.submitClaim(
-                    claim_id,
-                    w3.to_wei(claim_data['claim_amount'], 'ether'),
-                    claim_data['hospital_transaction_id']
-                ).transact({'from': buyer_address})
-                w3.eth.wait_for_transaction_receipt(txn)
-            except Exception as e:
-                return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+        return Response({
+            'error': f'Failed to store claim document: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def claim_history(request):
-    buyer_address = request.query_params.get('wallet_address')
+def get_buyer_history(request, wallet_address):
+    """
+    Get buyer's premium payment and claim history
+    """
     try:
-        buyer = Buyer.objects.get(wallet_address=buyer_address)
-        claims = Claim.objects.filter(buyer=buyer).order_by('-created_at')
-        serializer = ClaimSerializer(claims, many=True)
-        return Response(serializer.data)
-    except Buyer.DoesNotExist:
-        return Response({'error': 'Buyer not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Admin
-def verify_claim(request):
-    claim_id = request.data.get('claimId')
-    status_verified = request.data.get('status', True)
-    try:
-        claim = Claim.objects.get(claim_id=claim_id)
-        claim.claim_status = 'verified' if status_verified else 'rejected'
-        claim.save()
-
-        # Call smart contract to verify
-        if contract is not None:
-            try:
-                txn = contract.functions.verifyClaim(
-                    claim_id,
-                    status_verified
-                ).transact({'from': 'admin_address'})  # Use admin wallet
-                w3.eth.wait_for_transaction_receipt(txn)
-            except Exception as e:
-                print(f"Warning: Could not verify claim on blockchain: {e}")
-
-        serializer = ClaimSerializer(claim)
-        return Response(serializer.data)
-    except Claim.DoesNotExist:
-        return Response({'error': 'Claim not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Hospital
-def upload_transaction_record(request):
-    hospital_txn_id = request.data.get('hospitalTransactionId')
-    encrypted_blob = request.data.get('encryptedBlob', '')
-    cid = request.data.get('storachaCid', '')
-
-    data = {
-        'hospitalTransactionId': hospital_txn_id,
-        'encrypted_transaction_blob': encrypted_blob,
-        'storacha_cid': cid,
-    }
-    serializer = HospitalTxnRecordSerializer(data=data)
-    if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Buyer
-def upload_claim_doc(request):
-    claim_id = request.data.get('claimId')
-    encrypted_blob = request.data.get('encryptedBlob', '')
-    cid = request.data.get('storachaCid', '')
-
-    try:
-        claim = Claim.objects.get(claim_id=claim_id)
-        data = {
-            'claim': claim.id,
-            'encrypted_doc_blob': encrypted_blob,
-            'storacha_cid': cid,
+        buyer = get_object_or_404(Buyer, wallet_address=wallet_address)
+        
+        # Get premium payments
+        premiums = buyer.premiums.all().order_by('-created_at')
+        
+        # Get claims
+        claims = buyer.claim_set.all().order_by('-created_at')
+        
+        history_data = {
+            'buyer_info': {
+                'wallet_address': buyer.wallet_address,
+                'full_name': buyer.full_name,
+                'email': buyer.email,
+                'total_premiums_paid': str(buyer.total_premiums_paid),
+                'premium_payment_count': buyer.premium_payment_count,
+                'last_premium_payment': buyer.last_premium_payment
+            },
+            'premium_payments': [
+                {
+                    'amount_eth': str(premium.amount_eth),
+                    'transaction_hash': premium.transaction_hash,
+                    'block_timestamp': premium.block_timestamp,
+                    'status': premium.status
+                }
+                for premium in premiums
+            ],
+            'claims': [
+                {
+                    'claim_id': claim.claim_id,
+                    'amount': str(claim.claim_amount),
+                    'status': claim.claim_status,
+                    'description': claim.claim_description,
+                    'created_at': claim.created_at
+                }
+                for claim in claims
+            ],
+            'claim_documents': buyer.claim_documents or []
         }
-        serializer = ClaimDocSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    except Claim.DoesNotExist:
-        return Response({'error': 'Claim not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-# Admin Authentication Views
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def admin_register(request):
-    """Register a new admin user"""
-    serializer = AdminSerializer(data=request.data)
-    if serializer.is_valid():
-        admin = serializer.save()
+        
+        return Response(history_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
         return Response({
-            'message': 'Admin registered successfully',
-            'admin': {
-                'id': admin.id,
-                'email': admin.email,
-                'full_name': admin.full_name
-            }
-        }, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            'error': f'Failed to get buyer history: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@api_view(['GET'])
+def get_buyer_claims(request, wallet_address):
+    """
+    Get buyer's claim documents from their record
+    """
+    try:
+        buyer = get_object_or_404(Buyer, wallet_address=wallet_address)
+        
+        return Response({
+            'buyer_address': buyer.wallet_address,
+            'claim_documents': buyer.claim_documents or []
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'Failed to get buyer claims: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Legacy API functions (placeholders - implement as needed)
+@api_view(['POST'])
+def add_buyer(request):
+    """Add a new buyer - placeholder function"""
+    return Response({'message': 'add_buyer function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+def submit_claim(request):
+    """Submit a claim - placeholder function"""
+    return Response({'message': 'submit_claim function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['GET'])
+def claim_history(request):
+    """Get claim history - placeholder function"""
+    return Response({'message': 'claim_history function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['POST'])
+def verify_claim(request):
+    """Verify a claim - placeholder function"""
+    return Response({'message': 'verify_claim function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['POST'])
+def upload_transaction_record(request):
+    """Upload transaction record - placeholder function"""
+    return Response({'message': 'upload_transaction_record function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['POST'])
+def upload_claim_doc(request):
+    """Upload claim document - placeholder function"""
+    return Response({'message': 'upload_claim_doc function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+# Admin authentication functions
+@api_view(['POST'])
+def admin_register(request):
+    """Admin registration - placeholder function"""
+    return Response({'message': 'admin_register function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@csrf_exempt
+@api_view(['POST'])
 def admin_login(request):
     """Admin login with email and password"""
-    serializer = AdminLoginSerializer(data=request.data)
-    if serializer.is_valid():
-        admin = serializer.validated_data['admin']
+    try:
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        if not email or not password:
+            return Response({
+                'error': 'Email and password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Find admin by email
+        try:
+            admin = Admin.objects.get(email=email, is_active=True)
+        except Admin.DoesNotExist:
+            return Response({
+                'error': 'Invalid email or password'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Check password
+        if not admin.check_password(password):
+            return Response({
+                'error': 'Invalid email or password'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Update last login
+        admin.last_login = timezone.now()
+        admin.save(update_fields=['last_login'])
+        
         return Response({
+            'success': True,
             'message': 'Login successful',
             'admin': {
-                'id': admin.id,
+                'id': str(admin.id),
                 'email': admin.email,
                 'full_name': admin.full_name,
-                'last_login': admin.last_login
+                'wallet_verified': False  # Will be verified in next step
             }
         }, status=status.HTTP_200_OK)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Exception as e:
+        return Response({
+            'error': f'Login failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
+@csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
 def admin_verify_wallet(request):
-    """Verify admin wallet address matches the configured admin wallet"""
-    serializer = AdminWalletVerificationSerializer(data=request.data)
-    if serializer.is_valid():
-        wallet_address = serializer.validated_data['wallet_address']
-        admin_id = serializer.validated_data['admin_id']
+    """Admin wallet verification"""
+    try:
+        wallet_address = request.data.get('wallet_address')
+        admin_id = request.data.get('admin_id')
         
-        # Get the admin wallet address from environment
-        admin_wallet = settings.ADMIN_WALLET_ADDRESS.lower() if hasattr(settings, 'ADMIN_WALLET_ADDRESS') else None
-        
-        if not admin_wallet:
+        if not wallet_address or not admin_id:
             return Response({
-                'error': 'Admin wallet address not configured'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                'error': 'Wallet address and admin ID are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Verify the admin exists and is active
+        # Get admin
         try:
             admin = Admin.objects.get(id=admin_id, is_active=True)
         except Admin.DoesNotExist:
             return Response({
-                'error': 'Admin not found or inactive'
+                'error': 'Admin not found'
             }, status=status.HTTP_404_NOT_FOUND)
         
-        # Check if wallet address matches
-        if wallet_address == admin_wallet:
-            return Response({
-                'message': 'Wallet verified successfully',
-                'admin': {
-                    'id': admin.id,
-                    'email': admin.email,
-                    'full_name': admin.full_name,
-                    'wallet_verified': True
-                }
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({
-                'error': 'Wallet address does not match admin wallet'
-            }, status=status.HTTP_403_FORBIDDEN)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# Admin Management Views
-@api_view(['GET'])
-@permission_classes([AllowAny])  # We'll handle admin verification in the view
-def admin_get_claims(request):
-    """Get all claims for admin review"""
-    claims = Claim.objects.all().order_by('-created_at')
-    serializer = ClaimSerializer(claims, many=True)
-    return Response(serializer.data)
-
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def admin_get_buyers(request):
-    """Get all buyers for admin review"""
-    buyers = Buyer.objects.all().order_by('-id')
-    serializer = BuyerSerializer(buyers, many=True)
-    return Response(serializer.data)
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def admin_update_claim_status(request):
-    """Update claim status (approve/reject)"""
-    claim_id = request.data.get('claim_id')
-    new_status = request.data.get('status')  # 'verified' or 'rejected'
-    admin_id = request.data.get('admin_id')
-    
-    if not all([claim_id, new_status, admin_id]):
-        return Response({
-            'error': 'claim_id, status, and admin_id are required'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Verify admin exists
-    try:
-        admin = Admin.objects.get(id=admin_id, is_active=True)
-    except Admin.DoesNotExist:
-        return Response({
-            'error': 'Admin not found or inactive'
-        }, status=status.HTTP_404_NOT_FOUND)
-    
-    # Update claim status
-    try:
-        claim = Claim.objects.get(claim_id=claim_id)
-        claim.claim_status = new_status
-        claim.save()
+        # Check if wallet address matches expected admin wallet
+        expected_admin_wallet = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"  # Hardhat account #0
         
-        # Call smart contract to verify (if contract is available)
-        if contract is not None and new_status in ['verified', 'rejected']:
-            try:
-                status_bool = new_status == 'verified'
-                txn = contract.functions.verifyClaim(
-                    claim_id,
-                    status_bool
-                ).transact({'from': settings.ADMIN_WALLET_ADDRESS})
-                w3.eth.wait_for_transaction_receipt(txn)
-            except Exception as e:
-                print(f"Warning: Could not update claim on blockchain: {e}")
+        if wallet_address.lower() != expected_admin_wallet.lower():
+            return Response({
+                'error': f'Invalid admin wallet. Expected: {expected_admin_wallet}'
+            }, status=status.HTTP_401_UNAUTHORIZED)
         
-        serializer = ClaimSerializer(claim)
         return Response({
-            'message': f'Claim {new_status} successfully',
-            'claim': serializer.data
+            'success': True,
+            'message': 'Wallet verified successfully',
+            'admin': {
+                'id': str(admin.id),
+                'email': admin.email,
+                'full_name': admin.full_name,
+                'wallet_address': wallet_address,
+                'wallet_verified': True
+            }
         }, status=status.HTTP_200_OK)
         
-    except Claim.DoesNotExist:
+    except Exception as e:
         return Response({
-            'error': 'Claim not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            'error': f'Wallet verification failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def admin_get_claims(request):
+    """Get claims for admin - placeholder function"""
+    return Response({'message': 'admin_get_claims function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['GET'])
+def admin_get_buyers(request):
+    """Get buyers for admin - placeholder function"""
+    return Response({'message': 'admin_get_buyers function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@api_view(['POST'])
+def admin_update_claim_status(request):
+    """Update claim status - placeholder function"""
+    return Response({'message': 'admin_update_claim_status function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+# Buyer authentication functions
+@api_view(['POST'])
+def buyer_register(request):
+    """Buyer registration - placeholder function"""
+    return Response({'message': 'buyer_register function - implement as needed'}, status=status.HTTP_501_NOT_IMPLEMENTED)
+
+@csrf_exempt
+@api_view(['POST'])
+def buyer_login(request):
+    """Buyer login with email and password"""
+    try:
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        print(f"🔍 [DEBUG] Buyer login attempt - Email: {email}")
+        
+        if not email or not password:
+            print("❌ [DEBUG] Missing email or password")
+            return Response({
+                'error': 'Email and password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if any buyers exist
+        buyer_count = Buyer.objects.count()
+        print(f"🔍 [DEBUG] Total buyers in database: {buyer_count}")
+        
+        # Find buyer by email
+        try:
+            buyer = Buyer.objects.get(email=email, is_active=True)
+            print(f"✅ [DEBUG] Found buyer: {buyer.full_name} ({buyer.email})")
+        except Buyer.DoesNotExist:
+            print(f"❌ [DEBUG] No buyer found with email: {email}")
+            # List all buyers for debugging
+            all_buyers = Buyer.objects.all().values_list('email', 'is_active')
+            print(f"🔍 [DEBUG] All buyers: {list(all_buyers)}")
+            return Response({
+                'error': 'Invalid email or password'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Check password
+        print(f"🔍 [DEBUG] Checking password for buyer: {buyer.email}")
+        if not buyer.check_password(password):
+            print("❌ [DEBUG] Password check failed")
+            return Response({
+                'error': 'Invalid email or password'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        print("✅ [DEBUG] Password check passed")
+        
+        # Update last login
+        buyer.last_login = timezone.now()
+        buyer.save(update_fields=['last_login'])
+        
+        print(f"✅ [DEBUG] Login successful for buyer: {buyer.email}")
+        
+        return Response({
+            'success': True,
+            'message': 'Login successful',
+            'buyer': {
+                'id': str(buyer.id),
+                'email': buyer.email,
+                'full_name': buyer.full_name,
+                'wallet_address': buyer.wallet_address,
+                'wallet_verified': False  # Will be verified in next step
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        print(f"❌ [DEBUG] Login exception: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            'error': f'Login failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+def buyer_verify_wallet(request):
+    """Buyer wallet verification"""
+    try:
+        wallet_address = request.data.get('wallet_address')
+        buyer_id = request.data.get('buyer_id')
+        
+        if not wallet_address or not buyer_id:
+            return Response({
+                'error': 'Wallet address and buyer ID are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get buyer
+        try:
+            buyer = Buyer.objects.get(id=buyer_id, is_active=True)
+        except Buyer.DoesNotExist:
+            return Response({
+                'error': 'Buyer not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if wallet address matches buyer's registered wallet
+        if wallet_address.lower() != buyer.wallet_address.lower():
+            return Response({
+                'error': f'Invalid wallet. Expected: {buyer.wallet_address}'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        return Response({
+            'success': True,
+            'message': 'Wallet verified successfully',
+            'buyer': {
+                'id': str(buyer.id),
+                'email': buyer.email,
+                'full_name': buyer.full_name,
+                'wallet_address': wallet_address,
+                'wallet_verified': True
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'Wallet verification failed: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

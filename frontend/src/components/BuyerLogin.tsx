@@ -1,24 +1,25 @@
 import { useState } from 'react';
-import { getWeb3, getAccount } from '../services/web3';
+import { getAccount } from '../services/web3';
 
-interface AdminLoginProps {
-  onAdminLogin: (adminData: any) => void;
+interface BuyerLoginProps {
+  onBuyerLogin: (buyerData: any) => void;
 }
 
-interface AdminData {
+interface BuyerData {
   id: string;
   email: string;
   full_name: string;
+  wallet_address: string;
   wallet_verified: boolean;
 }
 
-export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
+export default function BuyerLogin({ onBuyerLogin }: BuyerLoginProps) {
   const [step, setStep] = useState<'login' | 'wallet'>('login');
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
-  const [adminData, setAdminData] = useState<AdminData | null>(null);
+  const [buyerData, setBuyerData] = useState<BuyerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +36,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
     setError(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/api'}/admin/login/`, {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/api'}/buyer/login/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -46,7 +47,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
       const data = await response.json();
 
       if (response.ok) {
-        setAdminData(data.admin);
+        setBuyerData(data.buyer);
         setStep('wallet');
       } else {
         setError(data.error || 'Login failed');
@@ -60,7 +61,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
   };
 
   const handleWalletVerification = async () => {
-    if (!adminData) return;
+    if (!buyerData) return;
 
     setLoading(true);
     setError(null);
@@ -87,14 +88,14 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
       const walletAddress = accounts[0];
 
       // Verify wallet address with backend
-      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/api'}/admin/verify-wallet/`, {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/api'}/buyer/verify-wallet/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           wallet_address: walletAddress,
-          admin_id: adminData.id
+          buyer_id: buyerData.id
         }),
       });
 
@@ -102,14 +103,14 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
 
       if (response.ok) {
         // Address verified successfully - now MetaMask is connected
-        const verifiedAdminData = {
-          ...adminData,
+        const verifiedBuyerData = {
+          ...buyerData,
           wallet_verified: true,
-          wallet_address: walletAddress
+          connected_wallet: walletAddress
         };
-        onAdminLogin(verifiedAdminData);
+        onBuyerLogin(verifiedBuyerData);
       } else {
-        setError(data.error || 'Wallet address verification failed. Please use the correct admin wallet.');
+        setError(data.error || 'Wallet address verification failed. Please use your registered wallet.');
       }
     } catch (err: any) {
       console.error('Wallet verification error:', err);
@@ -128,7 +129,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
 
   const resetLogin = () => {
     setStep('login');
-    setAdminData(null);
+    setBuyerData(null);
     setFormData({ email: '', password: '' });
     setError(null);
   };
@@ -138,10 +139,10 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="text-center">
           <h2 className="text-3xl font-extrabold text-gray-900">
-            🛡️ Admin Login
+            👤 Buyer Login
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Health Insurance DApp Administration
+            Health Insurance DApp - Buyer Portal
           </p>
         </div>
       </div>
@@ -170,7 +171,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
                     value={formData.email}
                     onChange={handleInputChange}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="admin@example.com"
+                    placeholder="buyer@example.com"
                   />
                 </div>
               </div>
@@ -201,7 +202,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
                   className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                     loading
                       ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                      : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
                   }`}
                 >
                   {loading ? (
@@ -214,6 +215,19 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
                   )}
                 </button>
               </div>
+
+              <div className="text-center">
+                <p className="text-sm text-gray-600">
+                  Don't have an account?{' '}
+                  <button
+                    type="button"
+                    className="font-medium text-green-600 hover:text-green-500"
+                    onClick={() => setError('Registration feature coming soon!')}
+                  >
+                    Register here
+                  </button>
+                </p>
+              </div>
             </form>
           ) : (
             <div className="space-y-6">
@@ -223,10 +237,10 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
                     ✅ Email Verified
                   </h3>
                   <p className="text-sm text-green-700">
-                    Welcome, {adminData?.full_name}!
+                    Welcome, {buyerData?.full_name}!
                   </p>
                   <p className="text-xs text-green-600 mt-1">
-                    {adminData?.email}
+                    {buyerData?.email}
                   </p>
                 </div>
 
@@ -235,10 +249,10 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
                     🦊 Wallet Verification Required
                   </h3>
                   <p className="text-sm text-blue-700 mb-4">
-                    Please connect with the admin MetaMask wallet to complete authentication.
+                    Please connect with your registered MetaMask wallet to complete authentication.
                   </p>
                   <p className="text-xs text-blue-600 mb-4">
-                    Required wallet: 0xf39F...2266 (Hardhat Account #0)
+                    Required wallet: {buyerData?.wallet_address}
                   </p>
                   
                   <button
@@ -247,7 +261,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
                     className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                       loading
                         ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                        : 'bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500'
                     }`}
                   >
                     {loading ? (
@@ -275,7 +289,7 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
         </div>
 
         <div className="mt-6 text-center text-xs text-gray-500">
-          <p>Admin access requires both email/password and MetaMask wallet verification</p>
+          <p>Buyer access requires both email/password and MetaMask wallet verification</p>
         </div>
       </div>
     </div>

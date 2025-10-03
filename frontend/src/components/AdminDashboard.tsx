@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getWeb3, getAccount } from '../services/web3';
+import { registerBuyerOnChain, checkBuyerRegistration } from '../services/contract';
 
 interface Claim {
   claim_id: string;
@@ -33,7 +34,11 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'claims' | 'buyers' | 'analytics'>('claims');
+  const [activeTab, setActiveTab] = useState<'claims' | 'buyers' | 'analytics' | 'registration'>('registration');
+  const [newBuyerAddress, setNewBuyerAddress] = useState('');
+  const [registrationStatus, setRegistrationStatus] = useState('');
+  const [checkAddress, setCheckAddress] = useState('');
+  const [checkResult, setCheckResult] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -114,6 +119,66 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
     }
   };
 
+  const handleRegisterBuyer = async () => {
+    if (!newBuyerAddress || newBuyerAddress.length !== 42) {
+      setRegistrationStatus('❌ Please enter a valid wallet address (42 characters)');
+      return;
+    }
+
+    try {
+      setRegistrationStatus('🔄 Registering buyer on blockchain...');
+      
+      // First check if already registered
+      const isAlreadyRegistered = await checkBuyerRegistration(newBuyerAddress);
+      if (isAlreadyRegistered) {
+        setRegistrationStatus('⚠️ Buyer is already registered on the blockchain');
+        return;
+      }
+
+      // Register the buyer
+      const result = await registerBuyerOnChain(newBuyerAddress);
+      setRegistrationStatus(`✅ Buyer registered successfully!\nTransaction Hash: ${result.transactionHash}\nAddress: ${newBuyerAddress}`);
+      
+      // Clear the input
+      setNewBuyerAddress('');
+      
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      let errorMessage = '❌ Registration failed: ';
+      
+      if (error?.message?.includes('Only admin')) {
+        errorMessage += 'Only admin can register buyers. Make sure you are connected with the admin wallet.';
+      } else if (error?.message?.includes('User denied')) {
+        errorMessage += 'Transaction was rejected by user.';
+      } else if (error?.message?.includes('insufficient funds')) {
+        errorMessage += 'Insufficient funds for gas fees.';
+      } else {
+        errorMessage += error?.message || 'Unknown error occurred';
+      }
+      
+      setRegistrationStatus(errorMessage);
+    }
+  };
+
+  const handleCheckRegistration = async () => {
+    if (!checkAddress || checkAddress.length !== 42) {
+      setCheckResult('❌ Please enter a valid wallet address (42 characters)');
+      return;
+    }
+
+    try {
+      const isRegistered = await checkBuyerRegistration(checkAddress);
+      setCheckResult(
+        isRegistered
+          ? `✅ Address is registered and can pay premiums\n${checkAddress}`
+          : `❌ Address is NOT registered\n${checkAddress}\nThis buyer needs to be registered before paying premiums.`
+      );
+    } catch (error: any) {
+      console.error('Check registration error:', error);
+      setCheckResult(`❌ Error checking registration: ${error?.message || 'Unknown error'}`);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusColors = {
       pending: 'bg-yellow-100 text-yellow-800',
@@ -167,6 +232,7 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8 px-6">
             {[
+              { id: 'registration', label: 'Buyer Registration', icon: '🔐' },
               { id: 'claims', label: 'Claims Management', icon: '📋' },
               { id: 'buyers', label: 'Buyers', icon: '👥' },
               { id: 'analytics', label: 'Analytics', icon: '📊' }
@@ -187,6 +253,140 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
         </div>
 
         <div className="p-6">
+          {/* Buyer Registration Tab */}
+          {activeTab === 'registration' && (
+            <div className="space-y-6">
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-yellow-700">
+                      <strong>Important:</strong> Buyers must be registered on the blockchain before they can pay premiums.
+                      The payment error "Internal JSON-RPC error" occurs when unregistered buyers try to pay.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Register New Buyer */}
+                <div className="bg-white border rounded-lg p-6">
+                  <h3 className="text-lg font-semibold mb-4">🔐 Register New Buyer</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Buyer Wallet Address
+                      </label>
+                      <input
+                        type="text"
+                        value={newBuyerAddress}
+                        onChange={(e) => setNewBuyerAddress(e.target.value)}
+                        placeholder="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Enter the complete wallet address (42 characters starting with 0x)
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleRegisterBuyer}
+                      disabled={!newBuyerAddress || newBuyerAddress.length !== 42}
+                      className={`w-full py-3 px-4 rounded-lg font-medium ${
+                        newBuyerAddress && newBuyerAddress.length === 42
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      Register Buyer on Blockchain
+                    </button>
+                    {registrationStatus && (
+                      <div className={`p-3 rounded-lg ${
+                        registrationStatus.includes('✅')
+                          ? 'bg-green-50 text-green-800'
+                          : registrationStatus.includes('❌')
+                          ? 'bg-red-50 text-red-800'
+                          : 'bg-blue-50 text-blue-800'
+                      }`}>
+                        <p className="whitespace-pre-wrap">{registrationStatus}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Check Registration Status */}
+                <div className="bg-white border rounded-lg p-6">
+                  <h3 className="text-lg font-semibold mb-4">🔍 Check Registration Status</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Wallet Address to Check
+                      </label>
+                      <input
+                        type="text"
+                        value={checkAddress}
+                        onChange={(e) => setCheckAddress(e.target.value)}
+                        placeholder="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <button
+                      onClick={handleCheckRegistration}
+                      disabled={!checkAddress || checkAddress.length !== 42}
+                      className={`w-full py-3 px-4 rounded-lg font-medium ${
+                        checkAddress && checkAddress.length === 42
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      Check Registration Status
+                    </button>
+                    {checkResult && (
+                      <div className={`p-3 rounded-lg ${
+                        checkResult.includes('✅')
+                          ? 'bg-green-50 text-green-800'
+                          : 'bg-red-50 text-red-800'
+                      }`}>
+                        <p>{checkResult}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="bg-gray-50 rounded-lg p-6">
+                <h4 className="font-semibold mb-4">🚀 Quick Actions</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    onClick={() => {
+                      setNewBuyerAddress('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
+                      setCheckAddress('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
+                    }}
+                    className="p-3 bg-blue-100 hover:bg-blue-200 rounded-lg text-blue-800 text-sm"
+                  >
+                    📝 Use Reported Address (0x70997970C51812dc3A010C7d01b50e0d17dc79C8)
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const account = await getAccount();
+                      if (account) {
+                        setNewBuyerAddress(account);
+                        setCheckAddress(account);
+                      }
+                    }}
+                    className="p-3 bg-green-100 hover:bg-green-200 rounded-lg text-green-800 text-sm"
+                  >
+                    🔗 Use Current Connected Account
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Claims Management Tab */}
           {activeTab === 'claims' && (
             <div className="space-y-4">
