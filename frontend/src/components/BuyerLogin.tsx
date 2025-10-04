@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getAccount } from '../services/web3';
+import { loginToStoracha } from '../services/storacha';
 
 interface BuyerLoginProps {
   onBuyerLogin: (buyerData: any) => void;
@@ -47,6 +48,14 @@ export default function BuyerLogin({ onBuyerLogin }: BuyerLoginProps) {
       const data = await response.json();
 
       if (response.ok) {
+        // Automatically login to Storacha using the specific email
+        try {
+          await loginToStoracha();
+          console.log('Storacha login for buyer: ✅ Success');
+        } catch (storachaError) {
+          console.error('Error logging into Storacha:', storachaError);
+        }
+        
         setBuyerData(data.buyer);
         setStep('wallet');
       } else {

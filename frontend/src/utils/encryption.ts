@@ -6,7 +6,10 @@
 import { create } from "@storacha/client";
 
 const ENCRYPTION_KEY = 'your-32-byte-secret-key-here-for-demo'; // In production, use proper key management (e.g., derive from user wallet). Ensure 32 bytes for AES-256.
-const STORACHA_ADMIN_EMAIL = 'rafiaweshan4897@gmail.com'; // Centralized Storacha account
+// Use only the specific email provided
+const STORACHA_ADMIN_EMAIL = 'rafiaweshan4897@gmail.com';
+// Use the specific space DID provided
+const SPACE_DID = 'did:key:z6Mks2sfn2CcTcEXho661oVoB26hwjd4NdAR1UQ1JiHVdKPZ';
 
 function uint8ArrayToBase64(uint8Array: Uint8Array): string {
   let binary = '';
@@ -87,7 +90,7 @@ export async function uploadEncryptedToStoracha(file: File, metadata: { claimId?
     console.log('Payment plan ready.');
 
     // Create space for insurance claims (organized by buyer address)
-    const spaceName = `insurance-claims-${metadata.buyerAddress?.slice(-8) || 'default'}`;
+    const spaceName = `health-insurance-space`;
     const space = await client.createSpace(spaceName, { account });
     console.log('Storacha space created:', space.did());
     await client.setCurrentSpace(space.did());

@@ -10,7 +10,9 @@ export default function BuyerDashboard() {
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
   const [currentAccount, setCurrentAccount] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
-
+  const [claimHistory, setClaimHistory] = useState<any[]>([]);
+  const [premiumHistory, setPremiumHistory] = useState<any[]>([]);
+  
   useEffect(() => {
     checkRegistrationStatus();
   }, []);
@@ -73,47 +75,35 @@ export default function BuyerDashboard() {
     }
     
     try {
-      setClaimStatus('🔄 Uploading document to secure storage...');
-      const claimId = 'claim-' + Date.now();
-      const metadata = {
-        claimId,
-        buyerAddress: currentAccount,
-        timestamp: new Date().toISOString()
-      };
+      setClaimStatus('🔄 Submitting claim...');
       
-      const { cid } = await uploadEncryptedToStoracha(file, metadata);
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('buyer_address', currentAccount);
+      formData.append('claim_description', 'Medical claim submission');
       
-      // Store CID in buyer's database record
-      try {
-        const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/store-claim-document/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            buyer_address: currentAccount,
-            claim_id: claimId,
-            cid: cid,
-            filename: file.name,
-            file_size: file.size
-          })
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to store claim in database');
-        }
-        
-        const result = await response.json();
-        console.log('✅ Claim stored in database:', result);
-        
-      } catch (dbError) {
-        console.error('Database storage error:', dbError);
-        // Continue anyway - the document is still uploaded to Storacha
+      // Submit claim with PDF file
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/submit-claim/`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit claim');
       }
       
-      // TODO: Call submitClaimOnChain with amount, claimId, hospitalTxnId
+      const result = await response.json();
+      console.log('✅ Claim submitted:', result);
       
-      setClaimStatus(`✅ Claim submitted successfully!\n📄 Document ID: ${cid}\n🔐 Your document is encrypted and stored securely\n⏳ Claim ID: ${claimId}\n📋 Stored in your account history\n\nAdmin will review your claim and update the status.`);
+      setClaimStatus(`✅ Claim submitted successfully!
+📋 Claim ID: ${result.claim_id}
+💳 Transaction ID: ${result.transaction_id}
+💰 Claim Amount: $${result.claim_amount}
+🔍 Verification Status: ${result.verification_status}
+
+Admin will review your claim and update the status.`);
       
       // Clear the file input
       setFile(null);
@@ -123,6 +113,42 @@ export default function BuyerDashboard() {
       setClaimStatus('❌ Claim submission failed: ' + (error as Error).message);
     }
   };
+
+  const fetchClaimHistory = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/buyer-history/${currentAccount}/`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch claim history');
+      }
+      
+      const data = await response.json();
+      setClaimHistory(data.claims || []);
+    } catch (error) {
+      console.error('Error fetching claim history:', error);
+    }
+  };
+
+  const fetchPremiumHistory = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/fetch-premiums/${currentAccount}/`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch premium history');
+      }
+      
+      const data = await response.json();
+      setPremiumHistory(data || []);
+    } catch (error) {
+      console.error('Error fetching premium history:', error);
+    }
+  };
+
+  // Add useEffect to fetch claim history when the component loads
+  useEffect(() => {
+    if (currentAccount) {
+      fetchClaimHistory();
+      fetchPremiumHistory();
+    }
+  }, [currentAccount]);
 
   if (isLoading) {
     return (
@@ -237,6 +263,95 @@ export default function BuyerDashboard() {
               : 'bg-blue-50 text-blue-800 border border-blue-200'
           }`}>
             <p className="whitespace-pre-wrap text-sm">{claimStatus}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Claim History */}
+      <div className="card bg-white p-6 rounded-lg shadow-md mt-6">
+        <h3 className="text-xl font-semibold mb-4">Claim History</h3>
+        
+        {claimHistory.length === 0 ? (
+          <p className="text-gray-500">No claims submitted yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {claimHistory.map((claim) => (
+              <div key={claim.claim_id} className="border rounded-lg p-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-medium">Claim ID: {claim.claim_id}</h4>
+                    <p className="text-sm text-gray-600 mt-1">${claim.amount} - {new Date(claim.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    claim.status === 'accepted' ? 'bg-green-100 text-green-800' :
+                    claim.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                    claim.status === 'not_approved' ? 'bg-red-100 text-red-800' :
+                    claim.status === 'verified' ? 'bg-blue-100 text-blue-800' :
+                    claim.status === 'unverified' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {claim.status_message || claim.status}
+                  </span>
+                </div>
+                <p className="text-sm mt-2">{claim.description}</p>
+                {claim.hospital_transaction_id && (
+                  <p className="text-xs text-gray-500 mt-1">Transaction ID: {claim.hospital_transaction_id}</p>
+                )}
+                {claim.storacha_cid && (
+                  <div className="mt-2">
+                    <a 
+                      href={`https://${claim.storacha_cid}.ipfs.storacha.link`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 text-sm"
+                    >
+                      View on Storacha
+                    </a>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Premium Payment History */}
+      <div className="card bg-white p-6 rounded-lg shadow-md mt-6">
+        <h3 className="text-xl font-semibold mb-4">Premium Payment History</h3>
+        
+        {premiumHistory.length === 0 ? (
+          <p className="text-gray-500">No premium payments recorded yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {premiumHistory.map((premium) => (
+              <div key={premium.id} className="border rounded-lg p-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-medium">Transaction: {premium.transaction_hash.substring(0, 10)}...{premium.transaction_hash.substring(premium.transaction_hash.length - 8)}</h4>
+                    <p className="text-sm text-gray-600 mt-1">{premium.amount_eth} ETH - {new Date(premium.block_timestamp).toLocaleDateString()}</p>
+                  </div>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    premium.status === 'confirmed' ? 'bg-green-100 text-green-800' :
+                    premium.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {premium.status.charAt(0).toUpperCase() + premium.status.slice(1)}
+                  </span>
+                </div>
+                {premium.storacha_cid && (
+                  <div className="mt-2">
+                    <a 
+                      href={`https://${premium.storacha_cid}.ipfs.storacha.link`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 text-sm"
+                    >
+                      View on Storacha
+                    </a>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>

@@ -5,7 +5,9 @@ from .views import (
     admin_register, admin_login, admin_verify_wallet,
     admin_get_claims, admin_get_buyers, admin_update_claim_status,
     buyer_register, buyer_login, buyer_verify_wallet,
-    store_claim_document, get_buyer_history, get_buyer_claims
+    store_claim_document, get_buyer_history, get_buyer_claims,
+    upload_claim_to_storacha, upload_premium_to_storacha,
+    fetch_accepted_claims, fetch_buyer_premiums
 )
 
 urlpatterns = [
@@ -29,6 +31,12 @@ urlpatterns = [
     path('admin/claims/', admin_get_claims, name='admin_get_claims'),
     path('admin/buyers/', admin_get_buyers, name='admin_get_buyers'),
     path('admin/update-claim-status/', admin_update_claim_status, name='admin_update_claim_status'),
+    
+    # Storacha endpoints
+    path('upload-claim/', upload_claim_to_storacha, name='upload_claim_to_storacha'),
+    path('upload-premium/', upload_premium_to_storacha, name='upload_premium_to_storacha'),
+    path('fetch-accepted-claims/', fetch_accepted_claims, name='fetch_accepted_claims'),
+    path('fetch-premiums/<str:wallet_address>/', fetch_buyer_premiums, name='fetch_buyer_premiums'),
     
     # New centralized Storacha endpoints
     path('store-claim-document/', store_claim_document, name='store_claim_document'),

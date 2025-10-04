@@ -21,7 +21,7 @@ class Buyer(models.Model):
     # Claim document storage (JSON field to store CIDs and metadata)
     claim_documents = models.JSONField(default=list, blank=True)  # List of {cid, claimId, timestamp, status}
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def set_password(self, raw_password):
@@ -54,8 +54,12 @@ class Claim(models.Model):
     STATUS_CHOICES = [
         ('submitted', 'Submitted'),
         ('verified', 'Verified'),
+        ('unverified', 'Unverified'),
+        ('accepted', 'Accepted'),
+        ('not_approved', 'Not Approved'),
         ('rejected', 'Rejected'),
         ('paid', 'Paid'),
+        ('cancelled', 'Cancelled'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -66,7 +70,10 @@ class Claim(models.Model):
     claim_status = models.CharField(max_length=50, default='submitted', choices=STATUS_CHOICES)
     claim_description = models.TextField(blank=True)
     hospital_transaction_id = models.CharField(max_length=200, null=True, blank=True)
+    storacha_cid = models.CharField(max_length=100, blank=True)  # Storacha CID for claim data
     created_at = models.DateTimeField(auto_now_add=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.claim_id
@@ -142,6 +149,7 @@ class Premium(models.Model):
     
     # Status tracking
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='confirmed')
+    storacha_cid = models.CharField(max_length=100, blank=True)  # Storacha CID for premium data
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

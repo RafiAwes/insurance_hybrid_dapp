@@ -16,6 +16,9 @@ python-dotenv>=1.0.0
 # HTTP Requests (for external API calls)
 requests>=2.31.0
 
+# Database URL parsing
+dj-database-url>=2.1.0
+
 # JSON Handling (for performance)
 ujson>=5.8.0
 
@@ -45,6 +48,9 @@ validators>=0.22.0
 
 # Logging
 structlog>=23.1.0
+
+# PDF Processing
+PyPDF2>=3.0.0
 
 # Testing (optional)
 pytest>=7.4.0

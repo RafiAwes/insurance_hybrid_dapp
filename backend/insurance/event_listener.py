@@ -133,6 +133,39 @@ def handle_premium_paid(event):
             print(f"   Total paid: {buyer.total_premiums_paid} ETH")
             print(f"   Payment count: {buyer.premium_payment_count}")
             print(f"   Last payment: {buyer.last_premium_payment}")
+            
+            # Upload premium data to Storacha
+            try:
+                from .services.storacha_node_service import StorachaNodeService
+                storacha_service = StorachaNodeService()
+                
+                # Prepare buyer data
+                buyer_data = {
+                    'id': str(buyer.id),
+                    'full_name': buyer.full_name,
+                    'email': buyer.email,
+                    'wallet_address': buyer.wallet_address,
+                    'national_id': buyer.national_id
+                }
+                
+                # Prepare premium data
+                premium_data = {
+                    'transaction_hash': premium.transaction_hash,
+                    'amount_eth': str(premium.amount_eth),
+                    'block_timestamp': premium.block_timestamp.isoformat(),
+                    'status': premium.status
+                }
+                
+                # Upload to Storacha
+                cid = storacha_service.upload_premium_data(buyer_data, premium_data)
+                
+                # Save CID to premium
+                premium.storacha_cid = cid
+                premium.save(update_fields=['storacha_cid'])
+                
+                print(f"[PREMIUM EVENT] Premium data uploaded to Storacha with CID: {cid}")
+            except Exception as e:
+                print(f"[PREMIUM EVENT] Error uploading premium to Storacha: {str(e)}")
         else:
             print(f"[PREMIUM EVENT] Premium payment already exists: {tx_hash}")
 

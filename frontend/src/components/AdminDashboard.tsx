@@ -5,19 +5,26 @@ import { registerBuyerOnChain, checkBuyerRegistration } from '../services/contra
 interface Claim {
   claim_id: string;
   buyer: string;
+  buyer_name: string;
   claim_amount: string;
   claim_description: string;
   claim_status: string;
   created_at: string;
   hospital_transaction_id: string;
+  verified_at: string | null;
+  accepted_at: string | null;
 }
 
 interface Buyer {
-  id: number;
+  id: string;
   wallet_address: string;
   name: string;
   email: string;
   created_at: string;
+  is_active: boolean;
+  last_login: string | null;
+  total_premiums_paid: string;
+  premium_payment_count: number;
 }
 
 interface AdminDashboardProps {
@@ -32,9 +39,10 @@ interface AdminDashboardProps {
 export default function AdminDashboard({ adminData }: AdminDashboardProps) {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [acceptedClaims, setAcceptedClaims] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'claims' | 'buyers' | 'analytics' | 'registration'>('registration');
+  const [activeTab, setActiveTab] = useState<'claims' | 'buyers' | 'analytics' | 'registration' | 'accepted'>('registration');
   const [newBuyerAddress, setNewBuyerAddress] = useState('');
   const [registrationStatus, setRegistrationStatus] = useState('');
   const [checkAddress, setCheckAddress] = useState('');
@@ -44,57 +52,103 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
     fetchData();
   }, []);
 
+  const fetchAcceptedClaims = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/fetch-accepted-claims/`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch accepted claims');
+      }
+      const data = await response.json();
+      setAcceptedClaims(data || []);
+    } catch (err) {
+      console.error('Error fetching accepted claims:', err);
+    }
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      // In a real implementation, you would fetch from your Django API
-      // For now, we'll use mock data
       
+      // Fetch real claims data from backend API
+      const claimsResponse = await fetch(`${import.meta.env.VITE_BACKEND_URL}/admin/claims/`);
+      if (!claimsResponse.ok) {
+        throw new Error('Failed to fetch claims data');
+      }
+      const claimsData = await claimsResponse.json();
+      
+      // Fetch real buyers data from backend API
+      const buyersResponse = await fetch(`${import.meta.env.VITE_BACKEND_URL}/admin/buyers/`);
+      if (!buyersResponse.ok) {
+        throw new Error('Failed to fetch buyers data');
+      }
+      const buyersData = await buyersResponse.json();
+      
+      setClaims(claimsData);
+      setBuyers(buyersData);
+      
+      // Fetch accepted claims
+      await fetchAcceptedClaims();
+    } catch (err) {
+      setError('Failed to fetch data: ' + (err as Error).message);
+      console.error('Error fetching data:', err);
+      
+      // Fallback to mock data if API fails
       // Mock claims data
       const mockClaims: Claim[] = [
         {
           claim_id: 'CLM-001',
           buyer: '0x1234...5678',
+          buyer_name: 'John Doe',
           claim_amount: '1000',
           claim_description: 'Emergency surgery',
           claim_status: 'pending',
           created_at: '2025-01-01T10:00:00Z',
-          hospital_transaction_id: 'HSP-001'
+          hospital_transaction_id: 'HSP-001',
+          verified_at: null,
+          accepted_at: null
         },
         {
           claim_id: 'CLM-002',
           buyer: '0x9876...5432',
+          buyer_name: 'Jane Smith',
           claim_amount: '500',
           claim_description: 'Routine checkup',
           claim_status: 'verified',
           created_at: '2025-01-01T11:00:00Z',
-          hospital_transaction_id: 'HSP-002'
+          hospital_transaction_id: 'HSP-002',
+          verified_at: '2025-01-01T12:00:00Z',
+          accepted_at: null
         }
       ];
 
       // Mock buyers data
       const mockBuyers: Buyer[] = [
         {
-          id: 1,
+          id: '1',
           wallet_address: '0x1234...5678',
           name: 'John Doe',
           email: 'john@example.com',
-          created_at: '2024-12-01T10:00:00Z'
+          created_at: '2024-12-01T10:00:00Z',
+          is_active: true,
+          last_login: null,
+          total_premiums_paid: '0',
+          premium_payment_count: 0
         },
         {
-          id: 2,
+          id: '2',
           wallet_address: '0x9876...5432',
           name: 'Jane Smith',
           email: 'jane@example.com',
-          created_at: '2024-12-02T10:00:00Z'
+          created_at: '2024-12-02T10:00:00Z',
+          is_active: true,
+          last_login: null,
+          total_premiums_paid: '0',
+          premium_payment_count: 0
         }
       ];
 
       setClaims(mockClaims);
       setBuyers(mockBuyers);
-    } catch (err) {
-      setError('Failed to fetch data');
-      console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
@@ -102,20 +156,45 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
 
   const handleClaimAction = async (claimId: string, action: 'approve' | 'reject') => {
     try {
-      // In a real implementation, you would call your Django API
-      console.log(`${action} claim ${claimId}`);
+      const status = action === 'approve' ? 'accepted' : 'rejected';
+      
+      // Call API to update claim status
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/admin/update-claim-status/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          claim_id: claimId,
+          status: status,
+          admin_id: adminData?.id
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update claim status');
+      }
+      
+      const result = await response.json();
+      console.log(`${action} claim result:`, result);
       
       // Update local state
       setClaims(claims.map(claim => 
         claim.claim_id === claimId 
-          ? { ...claim, claim_status: action === 'approve' ? 'verified' : 'rejected' }
+          ? { ...claim, claim_status: status, accepted_at: new Date().toISOString() }
           : claim
       ));
+      
+      // If claim was accepted, refresh accepted claims
+      if (status === 'accepted') {
+        await fetchAcceptedClaims();
+      }
       
       alert(`Claim ${claimId} has been ${action}d successfully!`);
     } catch (err) {
       console.error(`Error ${action}ing claim:`, err);
-      alert(`Failed to ${action} claim`);
+      alert(`Failed to ${action} claim: ${(err as Error).message}`);
     }
   };
 
@@ -180,15 +259,32 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
   };
 
   const getStatusBadge = (status: string) => {
-    const statusColors = {
-      pending: 'bg-yellow-100 text-yellow-800',
+    const statusColors: Record<string, string> = {
+      submitted: 'bg-blue-100 text-blue-800',
       verified: 'bg-green-100 text-green-800',
-      rejected: 'bg-red-100 text-red-800'
+      unverified: 'bg-yellow-100 text-yellow-800',
+      accepted: 'bg-green-100 text-green-800',
+      'not_approved': 'bg-red-100 text-red-800',
+      rejected: 'bg-red-100 text-red-800',
+      pending: 'bg-yellow-100 text-yellow-800'
     };
     
+    const statusLabels: Record<string, string> = {
+      submitted: 'Submitted',
+      verified: 'Verified',
+      unverified: 'Unverified',
+      accepted: 'Accepted',
+      not_approved: 'Not Approved',
+      rejected: 'Rejected',
+      pending: 'Pending'
+    };
+    
+    const bgColor = statusColors[status] || 'bg-gray-100 text-gray-800';
+    const label = statusLabels[status] || status;
+    
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'}`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${bgColor}`}>
+        {label}
       </span>
     );
   };
@@ -234,6 +330,7 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
             {[
               { id: 'registration', label: 'Buyer Registration', icon: '🔐' },
               { id: 'claims', label: 'Claims Management', icon: '📋' },
+              { id: 'accepted', label: 'Accepted Claims', icon: '✅' },
               { id: 'buyers', label: 'Buyers', icon: '👥' },
               { id: 'analytics', label: 'Analytics', icon: '📊' }
             ].map((tab) => (
@@ -428,7 +525,10 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
                           {claim.claim_id}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {claim.buyer}
+                          <div>
+                            <div>{claim.buyer_name}</div>
+                            <div className="text-xs text-gray-400">{claim.buyer}</div>
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           ${claim.claim_amount}
@@ -440,13 +540,13 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
                           {getStatusBadge(claim.claim_status)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {claim.claim_status === 'pending' && (
+                          {(claim.claim_status === 'pending' || claim.claim_status === 'submitted' || claim.claim_status === 'verified' || claim.claim_status === 'unverified') && (
                             <div className="space-x-2">
                               <button
                                 onClick={() => handleClaimAction(claim.claim_id, 'approve')}
                                 className="text-green-600 hover:text-green-900"
                               >
-                                ✅ Approve
+                                ✅ Accept
                               </button>
                               <button
                                 onClick={() => handleClaimAction(claim.claim_id, 'reject')}
@@ -457,11 +557,61 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
                             </div>
                           )}
                         </td>
+
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Accepted Claims Tab */}
+          {activeTab === 'accepted' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">Accepted Claims</h3>
+                <div className="text-sm text-gray-500">
+                  Total Accepted Claims: {acceptedClaims.length}
+                </div>
+              </div>
+
+              {acceptedClaims.length === 0 ? (
+                <p className="text-gray-500">No accepted claims found.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {acceptedClaims.map((claim) => (
+                    <div key={claim.claim_id} className="border rounded-lg p-4 shadow-sm">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-medium text-lg">Claim ID: {claim.claim_id}</h4>
+                          <p className="text-sm text-gray-600 mt-1">{claim.buyer_name}</p>
+                          <p className="text-sm text-gray-600">${claim.amount}</p>
+                        </div>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          {claim.status}
+                        </span>
+                      </div>
+                      <p className="text-sm mt-2 text-gray-700">{claim.description}</p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        {new Date(claim.created_at).toLocaleDateString()}
+                      </p>
+                      {claim.storacha_cid && (
+                        <div className="mt-3">
+                          <a 
+                            href={`https://${claim.storacha_cid}.ipfs.storacha.link`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                          >
+                            View on Storacha
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -531,14 +681,14 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
                 
                 <div className="bg-green-50 rounded-lg p-6">
                   <div className="text-2xl font-bold text-green-600">
-                    {claims.filter(c => c.claim_status === 'verified').length}
+                    {claims.filter(c => c.claim_status === 'accepted').length}
                   </div>
-                  <div className="text-sm text-green-800">Approved Claims</div>
+                  <div className="text-sm text-green-800">Accepted Claims</div>
                 </div>
                 
                 <div className="bg-yellow-50 rounded-lg p-6">
                   <div className="text-2xl font-bold text-yellow-600">
-                    {claims.filter(c => c.claim_status === 'pending').length}
+                    {claims.filter(c => c.claim_status === 'pending' || c.claim_status === 'submitted' || c.claim_status === 'verified' || c.claim_status === 'unverified').length}
                   </div>
                   <div className="text-sm text-yellow-800">Pending Claims</div>
                 </div>
@@ -549,7 +699,10 @@ export default function AdminDashboard({ adminData }: AdminDashboardProps) {
                 <div className="space-y-2">
                   {claims.slice(0, 5).map((claim) => (
                     <div key={claim.claim_id} className="flex justify-between items-center text-sm">
-                      <span>Claim {claim.claim_id} - {claim.claim_description}</span>
+                      <span>
+                        <span className="font-medium">{claim.buyer_name}</span> - 
+                        Claim {claim.claim_id} - {claim.claim_description}
+                      </span>
                       <span className="text-gray-500">
                         {new Date(claim.created_at).toLocaleDateString()}
                       </span>

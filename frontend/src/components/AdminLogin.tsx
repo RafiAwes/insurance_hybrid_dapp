@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getWeb3, getAccount } from '../services/web3';
+import { loginToStoracha } from '../services/storacha';
 
 interface AdminLoginProps {
   onAdminLogin: (adminData: any) => void;
@@ -46,6 +47,14 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
       const data = await response.json();
 
       if (response.ok) {
+        // Automatically login to Storacha using the specific email
+        try {
+          await loginToStoracha();
+          console.log('Storacha login for admin: ✅ Success');
+        } catch (storachaError) {
+          console.error('Error logging into Storacha:', storachaError);
+        }
+        
         setAdminData(data.admin);
         setStep('wallet');
       } else {
